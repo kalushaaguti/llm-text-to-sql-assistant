@@ -123,3 +123,8 @@ Query explanation + visualization dashboards
 Vector database + RAG for better schema grounding
 
 Deployment with authentication and monitoring
+
+## 🌐 Live Demo (Render)
+
+**Live App:** (https://llm-text-to-sql-assistant.onrender.com/)
+
