@@ -3,34 +3,37 @@ import sqlite3
 import csv
 import io
 from pathlib import Path
-from dotenv import load_dotenv
+
 from openai import OpenAI
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi import Request
 from pydantic import BaseModel
 
-# --- Load env ---
-import os
-from openai import OpenAI
-
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    raise RuntimeError("OPENAI_API_KEY is missing. Set it in the deployment environment variables.")
-
-client = OpenAI(api_key=api_key)
-
+# ----------------------------
+# Paths (works locally + Render)
+# ----------------------------
+BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "ai_analytics.db"
+TEMPLATES_DIR = BASE_DIR / "templates"
+STATIC_DIR = BASE_DIR / "static"
 
+# ----------------------------
+# OpenAI client (Render uses env vars, not .env)
+# ----------------------------
+api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=api_key) if api_key else None
+
+# ----------------------------
+# FastAPI app
+# ----------------------------
 app = FastAPI()
-templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-# Optional static folder
-static_dir = BASE_DIR / "static"
-if static_dir.exists():
-    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+# Only mount static if the folder exists
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 class QuestionIn(BaseModel):
@@ -39,8 +42,8 @@ class QuestionIn(BaseModel):
 
 def is_safe_sql(sql: str) -> bool:
     """
-    Simple safety: only allow SELECT queries.
-    This blocks INSERT/UPDATE/DELETE/DROP/ALTER/etc.
+    Basic safety: only allow SELECT queries.
+    Blocks INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/ATTACH/PRAGMA, etc.
     """
     s = sql.strip().lower()
     if not s.startswith("select"):
@@ -51,12 +54,17 @@ def is_safe_sql(sql: str) -> bool:
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
+    # Make sure index.html is inside /templates folder
     return templates.TemplateResponse("index.html", {"request": request})
 
 
 @app.post("/ask")
 def ask(q: QuestionIn):
     question = q.question.strip()
+
+    # If OpenAI key is missing, don't crash the whole server — just return a clear error
+    if client is None:
+        return {"sql": "", "error": "OPENAI_API_KEY is not set on the server (Render Environment Variables)."}
 
     prompt = f"""
 You are an expert data analyst.
@@ -83,11 +91,15 @@ Question: {question}
             messages=[{"role": "user", "content": prompt}],
             temperature=0
         )
+
         sql = response.choices[0].message.content.strip()
         sql = sql.replace("```sql", "").replace("```", "").strip()
 
         if not is_safe_sql(sql):
             return {"sql": sql, "error": "Blocked unsafe SQL (only SELECT is allowed)."}
+
+        if not DB_PATH.exists():
+            return {"sql": sql, "error": f"Database not found at: {DB_PATH}"}
 
         # Run query
         conn = sqlite3.connect(str(DB_PATH))
@@ -105,12 +117,7 @@ Question: {question}
         writer.writerows(rows)
         csv_text = output.getvalue()
 
-        return {
-            "sql": sql,
-            "columns": columns,
-            "rows": rows,
-            "csv": csv_text
-        }
+        return {"sql": sql, "columns": columns, "rows": rows, "csv": csv_text}
 
     except Exception as e:
         return {"sql": "", "error": str(e)}
