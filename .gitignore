@@ -1,5 +1,8 @@
 .env
 __pycache__/
 *.pyc
-ai_analytics.db
+git add .gitignore
+git add ai_analytics.db
+git commit -m "Include demo SQLite DB for deployment"
+git push
 output.csv
