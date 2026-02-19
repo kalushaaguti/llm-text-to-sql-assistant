@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>AI Text-to-SQL Assistant</title>
+  <style>
+    body { font-family: Arial; max-width: 900px; margin: 40px auto; }
+    textarea { width: 100%; height: 70px; }
+    pre { background: #f5f5f5; padding: 12px; overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+    th, td { border: 1px solid #ddd; padding: 8px; }
+    th { background: #f2f2f2; text-align: left; }
+    button { padding: 10px 16px; margin-top: 10px; cursor: pointer; }
+    .row { margin-top: 18px; }
+  </style>
+</head>
+<body>
+  <h2>LLM-Powered Text-to-SQL Analytics Assistant</h2>
+  <p>Ask a question in plain English. The system generates SQLite SQL and returns results.</p>
+
+  <textarea id="q" placeholder="e.g., total revenue, top customers, average order value"></textarea>
+  <br />
+  <button onclick="ask()">Run</button>
+
+  <div class="row">
+    <h3>Generated SQL</h3>
+    <pre id="sql"></pre>
+  </div>
+
+  <div class="row">
+    <h3>Results</h3>
+    <div id="results"></div>
+  </div>
+
+  <div class="row" id="downloadRow" style="display:none;">
+    <a id="downloadLink" href="#" download="results.csv">Download CSV</a>
+  </div>
+
+<script>
+async function ask() {
+  const question = document.getElementById("q").value.trim();
+  if (!question) return;
+
+  const res = await fetch("/ask", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({question})
+  });
+
+  const data = await res.json();
+
+  document.getElementById("sql").textContent = data.sql || "";
+  if (data.error) {
+    document.getElementById("results").innerHTML = "<b style='color:red;'>" + data.error + "</b>";
+    document.getElementById("downloadRow").style.display = "none";
+    return;
+  }
+
+  // Build table
+  let html = "<table><thead><tr>";
+  data.columns.forEach(c => html += `<th>${c}</th>`);
+  html += "</tr></thead><tbody>";
+  data.rows.forEach(r => {
+    html += "<tr>";
+    r.forEach(cell => html += `<td>${cell ?? ""}</td>`);
+    html += "</tr>";
+  });
+  html += "</tbody></table>";
+  document.getElementById("results").innerHTML = html;
+
+  // CSV download
+  const blob = new Blob([data.csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const link = document.getElementById("downloadLink");
+  link.href = url;
+  document.getElementById("downloadRow").style.display = "block";
+}
+</script>
+</body>
+</html>
